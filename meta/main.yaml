@@ -1,0 +1,31 @@
+---
+# disk_cleanup/meta/main.yml
+galaxy_info:
+  author: jitin.george
+  description: A generic role to clean up disk space across Windows and Linux.
+  company: Zurich-GroupArch
+  license: Private
+  min_ansible_version: "2.10"
+
+  platforms:
+    - name: Windows
+      versions:
+        - all
+    - name: EL
+      versions:
+        - all
+    - name: Debian
+      versions:
+        - all
+    - name: Fedora
+      versions:
+        - all
+
+  galaxy_tags:
+    - system
+    - cleanup
+    - disk
+    - windows
+    - linux
+
+dependencies: []
