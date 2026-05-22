@@ -1,0 +1,155 @@
+---
+- name: Prepare cleanup execution parameters
+  ansible.builtin.set_fact:
+    _cleanup_vars: "{{ vars_passed | default({}) }}"
+
+- name: Resolve cleanup settings from defaults + payload
+  ansible.builtin.set_fact:
+    cleanup_age_days: "{{ _cleanup_vars.cleanup_age_days | default(cleanup_default_age_days) | int }}"
+    cleanup_linux_targets: "{{ _cleanup_vars.cleanup_linux_paths | default(cleanup_linux_paths) }}"
+    cleanup_windows_targets: "{{ _cleanup_vars.cleanup_windows_paths | default(cleanup_windows_paths) }}"
+    cleanup_package_cache_enabled: "{{ _cleanup_vars.cleanup_package_cache | default(cleanup_package_cache_linux) | bool }}"
+    cleanup_truncate_logs_enabled: "{{ _cleanup_vars.cleanup_truncate_logs | default(cleanup_truncate_logs_linux) | bool }}"
+
+- name: Discover existing Linux cleanup paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: linux_path_stats
+  loop: "{{ cleanup_linux_targets }}"
+  when: ansible_system != 'Windows'
+
+- name: Find Linux files older than threshold
+  ansible.builtin.find:
+    paths: "{{ item.item }}"
+    recurse: true
+    file_type: file
+    hidden: true
+    age: "{{ cleanup_age_days }}d"
+    age_stamp: mtime
+  register: linux_find_results
+  loop: "{{ linux_path_stats.results | default([]) }}"
+  when:
+    - ansible_system != 'Windows'
+    - item.stat.exists | default(false)
+    - item.stat.isdir | default(false)
+
+- name: Flatten Linux files for deletion
+  ansible.builtin.set_fact:
+    cleanup_linux_files: >-
+      {{
+        linux_find_results.results
+        | default([])
+        | selectattr('files', 'defined')
+        | map(attribute='files')
+        | flatten
+        | list
+      }}
+  when: ansible_system != 'Windows'
+
+- name: Delete Linux files (best effort)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  register: linux_delete_results
+  failed_when: false
+  loop: "{{ cleanup_linux_files | default([]) }}"
+  when: ansible_system != 'Windows'
+
+- name: Stage Linux package cache cleanup
+  ansible.builtin.shell: |
+    set -o pipefail
+    if command -v apt-get >/dev/null 2>&1; then
+      apt-get clean
+    fi
+    if command -v yum >/dev/null 2>&1; then
+      yum clean all
+    fi
+    if command -v dnf >/dev/null 2>&1; then
+      dnf clean all
+    fi
+    if command -v zypper >/dev/null 2>&1; then
+      zypper clean --all
+    fi
+  args:
+    executable: /bin/bash
+  register: linux_pkg_cleanup
+  changed_when: false
+  failed_when: false
+  when:
+    - ansible_system != 'Windows'
+    - cleanup_package_cache_enabled
+
+- name: Stat Linux log files for optional truncation
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: linux_log_stats
+  loop: "{{ cleanup_linux_log_files | default([]) }}"
+  when:
+    - ansible_system != 'Windows'
+    - cleanup_truncate_logs_enabled
+
+- name: Truncate Linux logs (allowlist, best effort)
+  ansible.builtin.shell: ": > {{ item.item | quote }}"
+  args:
+    executable: /bin/bash
+  register: linux_log_truncate_results
+  changed_when: true
+  failed_when: false
+  loop: "{{ linux_log_stats.results | default([]) }}"
+  when:
+    - ansible_system != 'Windows'
+    - cleanup_truncate_logs_enabled
+    - item.stat.exists | default(false)
+    - item.stat.isreg | default(false)
+
+- name: Discover existing Windows cleanup paths
+  ansible.windows.win_stat:
+    path: "{{ item }}"
+  register: windows_path_stats
+  loop: "{{ cleanup_windows_targets }}"
+  when: ansible_system == 'Windows'
+
+- name: Find Windows files older than threshold
+  ansible.windows.win_find:
+    paths: "{{ item.item }}"
+    recurse: true
+    file_type: file
+    age: "{{ cleanup_age_days }}d"
+  register: windows_find_results
+  loop: "{{ windows_path_stats.results | default([]) }}"
+  when:
+    - ansible_system == 'Windows'
+    - item.stat.exists | default(false)
+    - item.stat.isdir | default(false)
+
+- name: Flatten Windows files for deletion
+  ansible.builtin.set_fact:
+    cleanup_windows_files: >-
+      {{
+        windows_find_results.results
+        | default([])
+        | selectattr('files', 'defined')
+        | map(attribute='files')
+        | flatten
+        | list
+      }}
+  when: ansible_system == 'Windows'
+
+- name: Delete Windows files (best effort)
+  ansible.windows.win_file:
+    path: "{{ item.path }}"
+    state: absent
+  register: windows_delete_results
+  failed_when: false
+  loop: "{{ cleanup_windows_files | default([]) }}"
+  when: ansible_system == 'Windows'
+
+- name: Mark disk_cleanup execution as changed
+  ansible.builtin.command: /bin/true
+  changed_when: true
+  when: ansible_system != 'Windows'
+
+- name: Mark disk_cleanup execution as changed on Windows
+  ansible.windows.win_command: cmd /c exit 0
+  changed_when: true
+  when: ansible_system == 'Windows'
