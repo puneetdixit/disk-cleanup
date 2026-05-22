@@ -1,0 +1,5 @@
+---
+- name: Rollback - No action required for disk_cleanup
+  ansible.builtin.debug:
+    msg: "Rollback requested for disk_cleanup role; currently no changes are applied during rollback."
+  changed_when: false
