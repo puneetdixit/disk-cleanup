@@ -1,0 +1,13 @@
+---
+cleanup_default_age_days: 3
+cleanup_linux_paths:
+  - /tmp
+  - /var/tmp
+  - /var/cache/apt/archives
+cleanup_windows_paths:
+  - C:\\Windows\\Temp
+cleanup_linux_log_files:
+  - /var/log/syslog
+  - /var/log/messages
+cleanup_package_cache_linux: false
+cleanup_truncate_logs_linux: false
